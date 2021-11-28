@@ -11,3 +11,17 @@
 # mai sus.
 # OUTPUT:
 # Continutul fisierului dupa ce a fost dezarhivat cu success
+import hashlib
+import shutil
+
+def trim_archive(archive,x):
+    copy_name=f"truncated_archive.{archive.split('.')[-1]}"
+    shutil.copyfile(archive,copy_name ) #create a copy of the archive
+    f=open(copy_name,'r+b')
+    f_size=f.seek(0,2)
+    f.seek(f_size-x,0)
+    f.truncate()
+    f.close()
+    return copy_name
+
+corrupted_archive=trim_archive("./the.zip",1)
