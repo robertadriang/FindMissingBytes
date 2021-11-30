@@ -37,7 +37,7 @@ def trim_archive(archive,x,copy=False):
         return trim_file(copy_name,x)
     return trim_file(archive,x)
 
-
+### TODO refactor this an get_hash_zip in a single function
 def get_hash(file,hash_type):
     m=hashlib.new(hash_type)
     with open(file, 'rb') as f:
@@ -74,6 +74,7 @@ def initialize_generator_power(number):
         pow+=1
     return pow
 
+
 def byte_generator(n):
     number=0
     pow=initialize_generator_power(number)
@@ -89,30 +90,27 @@ def byte_generator(n):
         number+=1
 
 
-BITS_TRIMMED=3
-corrupted_archive=trim_archive("./the.zip",BITS_TRIMMED,copy=True)
-generator=byte_generator(2**200)
-
-hash=get_hash("CryptoBasics.pdf",'md5')
-print(hash)
-print(corrupted_archive)
-
-
-def recompose_file(archive,hash):
+def recompose_file(archive,filename,hash):
     i = 0
-    while True:
+    found=False
+    while not found:
         bytes_to_add=next(generator)
         added_bytes_length = append_bits_to_file(archive, bytes_to_add)
         try:
             z = zipfile.ZipFile(archive)
-            f = z.open('CryptoBasics.pdf')
+            f = z.open(filename)
             hash2 = get_hash_zip(f, 'md5')
             print(hash2)
             if hash2==hash:
+                found=True
                 print("File found after adding the following bits:")
                 print(bytes_to_add)
-            break
+                f.seek(0)
+                print("File content:")
+                print(f.read())
+                exit()
         except Exception as e:
+            ## TODO check other exception type
             if type(e).__name__ == 'BadZipFile':
                 pass
             else:
@@ -125,4 +123,14 @@ def recompose_file(archive,hash):
                 print("Last processed:",bytes_to_add)
 
 
-recompose_file(corrupted_archive,hash)
+BITS_TRIMMED=2
+file_to_recompose='LAB4.txt'
+corrupted_archive=trim_archive("./the.zip",BITS_TRIMMED,copy=True)
+generator=byte_generator(2**200)
+
+hash=get_hash(file_to_recompose,'md5')
+print(hash)
+print(corrupted_archive)
+
+recompose_file(corrupted_archive,file_to_recompose,hash)
+
