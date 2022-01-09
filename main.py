@@ -134,3 +134,22 @@ print(corrupted_archive)
 
 recompose_file(corrupted_archive,file_to_recompose,hash)
 
+# import multiprocessing
+# import random
+#
+# def spawn(id):
+#     while True:
+#         el=random.choice(list)
+#         list.remove(el)
+#         print(list)
+#         print(f'[{id}]: {el}!')
+#
+# list = [i for i in range(20)]
+#
+# if __name__ == '__main__':
+#     list = [i for i in range(20)]
+#     print(list)
+#     for i in range(5):
+#         p = multiprocessing.Process(target=spawn,args=(i,))
+#         p.start()
+#         #p.join()  # this line allows you to wait for processes
