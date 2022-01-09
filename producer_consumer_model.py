@@ -49,6 +49,7 @@ if __name__ =='__main__':
     pipe_list=[]
 
     for i in elements_of_queue:
+
         producers.append(Process(target=producer,args=(queue,lock,i)))
 
     for i in range(10):

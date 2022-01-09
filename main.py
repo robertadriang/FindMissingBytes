@@ -1,4 +1,5 @@
-# Sa se scrie un tool care primeste un hash pentru un fisier originial si o arhiva trunchiata (maxim “x” bytes de la finalul arhivei originale lipsesc).
+# Sa se scrie un tool care primeste un hash pentru un fisier originial si o arhiva trunchiata
+# (maxim “x” bytes de la finalul arhivei originale lipsesc).
 # Tool-ul va gasi fisierul original din arhiva ( in momentul in care se va despacheta fisierul din arhiva va avea acelasi hash ca cel primit la input )
 # Pentru rezolvarea acestei probleme este imperativ folosirea oricarei forme de paralelizare (
 #
@@ -21,10 +22,10 @@ def trim_file(file,x):
     f = open(file, 'r+b')
     f_size = f.seek(0, 2)
     f.seek(f_size - x, 0)
-    # removed=f.read(x)
-    # print(removed)
-    # print(int.from_bytes(removed,byteorder='big'))
-    # f.seek(f_size - x, 0)
+    removed=f.read(x)
+    print(removed)
+    print(int.from_bytes(removed,byteorder='big'))
+    f.seek(f_size - x, 0)
     f.truncate()
     f.close()
     return file
@@ -123,7 +124,7 @@ def recompose_file(archive,filename,hash):
                 print("Last processed:",bytes_to_add)
 
 
-BITS_TRIMMED=2
+BITS_TRIMMED=3
 file_to_recompose='LAB4.txt'
 corrupted_archive=trim_archive("./the.zip",BITS_TRIMMED,copy=True)
 generator=byte_generator(2**200)
