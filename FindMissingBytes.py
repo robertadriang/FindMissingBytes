@@ -19,19 +19,27 @@ import shutil
 import zipfile
 from multiprocessing import Process, Queue, Lock,Pipe
 from queue import Empty
-
+import traceback
+import time
 
 def trim_file(file,x):
-    f = open(file, 'r+b')
-    f_size = f.seek(0, 2)
-    f.seek(f_size - x, 0)
-    # removed=f.read(x)
-    # print(removed)
-    # print(int.from_bytes(removed,byteorder='big'))
-    # f.seek(f_size - x, 0)
-    f.truncate()
-    f.close()
-    return file
+    while True:
+        try:
+            f = open(file, 'r+b')
+            f_size = f.seek(0, 2)
+            f.seek(f_size - x, 0)
+            # removed=f.read(x)
+            # print(removed)
+            # print(int.from_bytes(removed,byteorder='big'))
+            # f.seek(f_size - x, 0)
+            f.truncate()
+            f.close()
+        except Exception as e:
+            print("An error occured in trim_ile")
+            print(e)
+            #traceback.print_exc()
+            continue
+        return file
 
 
 def trim_archive(archive,x,copy=False,c_name='truncated_archive'):
@@ -48,6 +56,7 @@ def get_hash(file,hash_type):
         while chunk := f.read(1024):
             m.update(chunk)
     return m.hexdigest()
+
 
 def initialize_generator_power(number):
     pow=1
@@ -90,8 +99,8 @@ def recompose_file(archive,bytes_to_add,file_name,file_hash,hash_method):
     added_bytes_length = append_bits_to_file(archive, bytes_to_add)
     try:
         z = zipfile.ZipFile(archive)
-        #print(f"{file_name}")
-        #print(z.namelist())
+        # print(f"{file_name}")
+        # print(file_name in z.namelist())
         f = z.open(file_name)
         computed_hash = get_hash_zip(f, hash_method)
         if computed_hash==file_hash:
@@ -99,11 +108,17 @@ def recompose_file(archive,bytes_to_add,file_name,file_hash,hash_method):
         return False
     except Exception as e:
         ## TODO check other exception type
-        if type(e).__name__ == 'BadZipFile':
+
+        ### BadZipFile when the archive is corrupted
+        ### Errno 22 when the archive is valid but the file inside is corrupted
+        if type(e).__name__ == 'BadZipFile' or '[Errno 22]' in str(e):
             pass
         else:
-            pass
-            #print(e)
+            print("@@@@ NEW ERROR FOUND @@@")
+            print(e)
+            print(archive)
+            traceback.print_exc()
+            exit()
     finally:
         trim_archive(archive, added_bytes_length)
 
@@ -120,7 +135,7 @@ def producer(queue,lock,producer_number,elements_per_producer):
         element=next(producer_generator)
         # if element == b'\x03\x00\x00':
         #     print("Written in queue")
-        #print(element)
+        # print(element)
         queue.put(element)
         #queue.put(next(producer_generator))
         # with lock:
@@ -139,6 +154,8 @@ def consumer(queue,lock,pipe_conn,corrupted_archive,file_name,file_hash,hash_met
     while not queue.empty():
         try:
             r_value=queue.get(timeout=1)
+            # print(r_value)
+            # time.sleep(2)
             response=recompose_file(corrupted_archive,r_value,file_name,file_hash,hash_method)
             if response:
                 print(f"{os.getpid()} found the file after adding:",r_value)
@@ -177,7 +194,7 @@ def consumer(queue,lock,pipe_conn,corrupted_archive,file_name,file_hash,hash_met
 
 if __name__ == '__main__':
     archive_name="./the.zip"
-    file_name='LAB4.txt'
+    file_name='LoremIpsum.txt'
     bits_missing=2
     hash_method='md5'
     file_hash=get_hash(file_name,hash_method)
@@ -185,7 +202,7 @@ if __name__ == '__main__':
     queue=Queue()
     lock=Lock()
     elements_to_be_added=256**bits_missing
-    numbers_of_producers=2
+    numbers_of_producers=4
     elements_per_producer=int(elements_to_be_added/numbers_of_producers) ### TODO: Check that numbers divide correctly
     numbers_of_consumers=4
 
@@ -193,6 +210,8 @@ if __name__ == '__main__':
     producers=[]
     consumers=[]
     pipe_list=[]
+
+    main_corrupted_archive=trim_archive(archive_name,bits_missing,copy=True,c_name=f'MAIN_truncated_archive')
 
     for i in range(numbers_of_producers):
         producers.append(Process(target=producer,args=(queue,lock,i,elements_per_producer)))
@@ -215,11 +234,23 @@ if __name__ == '__main__':
 
     with lock:
         print(f'I try to read values from children')
-    print([x.recv() for x in pipe_list])
+
+    processes_responses=[x.recv() for x in pipe_list]
 
     for c in consumers:
         print(c.join(),"Consumer left")
 
+    print(processes_responses)
+    for response in processes_responses:
+        if response!='Not found':
+            append_bits_to_file(main_corrupted_archive, response)
+            print("File found after adding the following bits:")
+            print(response)
+            z = zipfile.ZipFile(main_corrupted_archive)
+            f = z.open(file_name)
+            f.seek(0)
+            print("File content:")
+            print(f.read())
+            print("Done!")
+            break
 
-    #print([x.recv() for x in pipe_list])
-    print("Done!")
