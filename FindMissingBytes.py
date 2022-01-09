@@ -118,11 +118,11 @@ def recompose_file(archive,bytes_to_add,file_name,file_hash,hash_method):
         trim_archive(archive, added_bytes_length)
 
 
-def producer(queue,lock,producer_number,elements_per_producer):
+def producer(queue,lock,producer_number,elements_per_producer,offset):
     with lock:
         print(f'Starting producer with PID {os.getpid()}')
-    producer_start=elements_per_producer*producer_number
-    producer_stop=elements_per_producer*(producer_number+1)
+    producer_start=offset+elements_per_producer*producer_number
+    producer_stop=offset+elements_per_producer*(producer_number+1)
     producer_generator=byte_generator(producer_start,producer_stop)
     print(f"Limits of the producer with PID {os.getpid()}:[{producer_start},{producer_stop}]")
     for i in range(elements_per_producer):
@@ -179,9 +179,9 @@ def consumer(queue,lock,pipe_conn,corrupted_archive,file_name,file_hash,hash_met
 
 
 if __name__ == '__main__':
-    archive_name="./schemadownloader_1.0-windows.zip"
-    file_name='README.txt'
-    bits_missing=1
+    archive_name="./the.zip"
+    file_name='LoremIpsum.txt'
+    bytes_missing=3
     hash_method='md5'
 
     file_hash=get_hash_unopened_file(file_name, hash_method)
@@ -189,66 +189,75 @@ if __name__ == '__main__':
     queue=Queue()
     lock=Lock()
 
-    number_of_missing_bytes=1
+    current_bytes_try=1
+    numbers_of_producers = 4
+    numbers_of_consumers = 4
+
+    while True:
+        offset = 256 ** (current_bytes_try - 1)
+        if offset==1:
+            offset=0
+        elements_to_be_added = 256 ** (current_bytes_try)-offset
 
 
-    elements_to_be_added=256**(bits_missing)
-    numbers_of_producers=4
-    elements_per_producer=int(elements_to_be_added/numbers_of_producers) ### TODO: Check that numbers divide correctly
-    numbers_of_consumers=4
+        elements_per_producer = int(
+            elements_to_be_added / numbers_of_producers)  ### TODO: Check that numbers divide correctly
+
+        producers = []
+        consumers = []
+        pipe_list = []
+
+        main_corrupted_archive, removed_bits = trim_archive(archive_name, bytes_missing, copy=True,
+                                                            c_name=f'MAIN_truncated_archive', save_bits=True)
+        print("Bits that were removed:", removed_bits)
+        print("Generator value for the removed part:", int.from_bytes(removed_bits, byteorder='big'))
+
+        ### Create producers processes
+        for i in range(numbers_of_producers):
+            producers.append(Process(target=producer, args=(queue, lock, i, elements_per_producer,offset)))
+
+        ### Create consumers processes
+        for i in range(numbers_of_consumers):
+            corrupted_archive = trim_archive(archive_name, bytes_missing, copy=True, c_name=f'tr_{i}')
+            parent_conn, child_conn = Pipe()
+            pipe_list.append(parent_conn)
+            c = Process(target=consumer,
+                        args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash, hash_method))
+            consumers.append(c)
+
+        for p in producers:
+            p.start()
+
+        for c in consumers:
+            c.start()
+
+        for p in producers:
+            p.join()
+            print(f"Producer {p} finished the job")
+
+        with lock:
+            print(f'Main thread tries to gather results from processes')
+        processes_responses = [x.recv() for x in pipe_list]
+
+        for c in consumers:
+            c.join()
+            print(f"Consumer {c} finished the job")
+
+        print("Results from processes:", processes_responses)
+        for response in processes_responses:
+            if response != 'Not found':
+                append_bits_to_file(main_corrupted_archive, response)
+                print("File found after adding the following bits:")
+                print(response)
+                z = zipfile.ZipFile(main_corrupted_archive)
+                f = z.open(file_name)
+                f.seek(0)
+                print("File content:")
+                print(f.read())
+                print("Done!")
+                exit(0)
+        print(f"Failed to unpack with {current_bytes_try}")
+        current_bytes_try+=1
 
 
-    producers=[]
-    consumers=[]
-    pipe_list=[]
-
-    main_corrupted_archive,removed_bits=trim_archive(archive_name,bits_missing,copy=True,c_name=f'MAIN_truncated_archive',save_bits=True)
-    print("Bits that were removed:",removed_bits)
-    print("Generator value for the removed part:",int.from_bytes(removed_bits,byteorder='big'))
-
-    ### Create producers processes
-    for i in range(numbers_of_producers):
-        producers.append(Process(target=producer,args=(queue,lock,i,elements_per_producer)))
-
-    ### Create consumers processes
-    for i in range(numbers_of_consumers):
-        corrupted_archive=trim_archive(archive_name,bits_missing,copy=True,c_name=f'tr_{i}')
-        parent_conn,child_conn=Pipe()
-        pipe_list.append(parent_conn)
-        c=Process(target=consumer,args=(queue,lock,child_conn,corrupted_archive,file_name,file_hash,hash_method))
-        consumers.append(c)
-
-    for p in producers:
-        p.start()
-
-    for c in consumers:
-        c.start()
-
-    for p in producers:
-        p.join()
-        print(f"Producer {p} finished the job")
-
-    with lock:
-        print(f'Main thread tries to gather results from processes')
-    processes_responses=[x.recv() for x in pipe_list]
-
-    for c in consumers:
-        c.join()
-        print(f"Consumer {c} finished the job")
-
-    print("Results from processes:",processes_responses)
-    for response in processes_responses:
-        if response!='Not found':
-            append_bits_to_file(main_corrupted_archive, response)
-            print("File found after adding the following bits:")
-            print(response)
-            z = zipfile.ZipFile(main_corrupted_archive)
-            f = z.open(file_name)
-            f.seek(0)
-            print("File content:")
-            print(f.read())
-            print("Done!")
-            exit(0)
-    print("Failed to unpack.")
-    exit(-1)
 
