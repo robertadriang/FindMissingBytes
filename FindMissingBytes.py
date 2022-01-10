@@ -14,7 +14,7 @@
 # OUTPUT:
 # Continutul fisierului dupa ce a fost dezarhivat cu success
 import zipfile
-from multiprocessing import Process, Queue, Lock, Pipe
+from multiprocessing import Process, Queue, Lock, Pipe, Value
 from consumer_producer_model import producer, consumer
 from file_processing import trim_archive, compute_hash_unopened_file, append_bytes_to_file
 
@@ -46,7 +46,7 @@ def create_producers(number_of_producers,queue,lock,current_bytes_try):
     return producers
 
 
-def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method):
+def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method,found):
     """Creates a list of consumers that share a queue and a lock.
     Creates a list of pipes used for communication between consumers and main process
 
@@ -70,7 +70,7 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
         parent_conn, child_conn = Pipe()
         pipe_list.append(parent_conn)
         c = Process(target=consumer,
-                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash, hash_method))
+                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash, hash_method,found))
         consumers.append(c)
     return consumers, pipe_list
 
@@ -90,6 +90,8 @@ if __name__ == '__main__':
     numbers_of_producers = 4
     numbers_of_consumers = 4
 
+    found = Value('i',0)
+
     while True:
 
         main_corrupted_archive, removed_bits = trim_archive(archive_name, bytes_missing, copy=True,
@@ -98,7 +100,7 @@ if __name__ == '__main__':
         print("Generator value for the removed part:", int.from_bytes(removed_bits, byteorder='big'))
 
         producers = create_producers(numbers_of_producers,queue,lock,current_bytes_try)
-        consumers,pipe_list= create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method)
+        consumers,pipe_list= create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method,found)
         for p in producers:
             p.start()
         for c in consumers:
