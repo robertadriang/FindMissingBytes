@@ -35,7 +35,7 @@ def producer(queue, lock, producer_number, elements_per_producer, offset, found)
             print(f'Closing producer {os.getpid()} because the solution was found.')
 
 
-def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, hash_method,found):
+def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, hash_method,found,archive_function):
     """Reconstructs the corrupted archive by reading byte string elements from a process safe queue.
     If the archive can be reconstructed it sends the byte string to be used to the main process.
     If the archive can not be reconstructed it sends the Not found string.
@@ -48,6 +48,7 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
     :param file_hash: The hash of the file to be extracted from the archive
     :param hash_method: The method of generating the file_hash (any hashlib method sent as a string e.g. 'md5')
     :param found: A shared variable  between consumer/producer and mainprocess
+    :param archive_function: A function that will be used to open the archive
     in order to stop the process when the solution is found
     """
     with lock:
@@ -55,7 +56,7 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
 
     # Checks if we found a solution on this thread
     sent_value = 0
-    queue_timeout = 3
+    queue_timeout = 5
     elements_processed = 0
 
     while not queue.empty() and found.value==0:
@@ -67,7 +68,7 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
                     print(
                         f"Consumer with PID {os.getpid()} processed f{elements_processed} elements. Queue remaining "
                         f"size:{queue.qsize()}")
-            response = check_archive_validity(corrupted_archive, r_value, file_name, file_hash, hash_method)
+            response = check_archive_validity(corrupted_archive, r_value, file_name, file_hash, hash_method,archive_function)
             if response:
                 with lock:
                     print(f"Consumer with PID {os.getpid()} found the file after adding:", r_value)

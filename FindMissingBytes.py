@@ -15,8 +15,11 @@
 # Continutul fisierului dupa ce a fost dezarhivat cu success
 import zipfile
 from multiprocessing import Process, Queue, Lock, Pipe, Value
+
+from rarfile import RarFile
+
 from consumer_producer_model import producer, consumer
-from file_processing import trim_archive, compute_hash_unopened_file, append_bytes_to_file
+from file_processing import trim_archive, compute_hash_unopened_file, append_bytes_to_file, get_file_extension
 
 
 def create_producers(number_of_producers,queue,lock,current_bytes_try,found):
@@ -47,7 +50,7 @@ def create_producers(number_of_producers,queue,lock,current_bytes_try,found):
     return producers
 
 
-def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method,found):
+def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method,found,archive_function):
     """Creates a list of consumers that share a queue and a lock.
     Creates a list of pipes used for communication between consumers and main process
 
@@ -62,6 +65,7 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
     :return: A list of consumers that can be started, A list of pipes used for communication between consumers and main process
     :param found: A shared variable  between consumer/producer and mainprocess
     in order to stop the process when the solution is found
+    :param archive_function: A function that will be used to open the archive
     """
     # Create consumers processes
 
@@ -73,37 +77,48 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
         parent_conn, child_conn = Pipe()
         pipe_list.append(parent_conn)
         c = Process(target=consumer,
-                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash, hash_method,found))
+                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash, hash_method,found,archive_function))
         consumers.append(c)
     return consumers, pipe_list
 
 
 if __name__ == '__main__':
-    archive_name = "./the.zip"
-    file_name = 'LoremIpsum.txt'
-    bytes_missing = 2
+    # archive_name = "./the.zip"
+    # file_name = 'LoremIpsum.txt'
+    archive_name = "./AI_PROJECT.rar"
+    file_name = 'AI_PROJECT/news.json'
+
+    bytes_missing = 5
     hash_method = 'md5'
 
     file_hash = compute_hash_unopened_file(file_name, hash_method)
+    file_extension=get_file_extension(archive_name)
+
+
+    accepted_extensions={'.zip': zipfile.ZipFile, '.rar':RarFile}
+    if file_extension not in accepted_extensions:
+        print("Please send a file with one of the following extensions:",list(accepted_extensions.keys()))
+        exit()
+
+    archive_open_function = accepted_extensions[file_extension]
 
     queue = Queue()
     lock = Lock()
-
-    current_bytes_try = 1
     numbers_of_producers = 4
     numbers_of_consumers = 4
-
     found = Value('i',0)
 
+    current_bytes_try = 1
     while True:
 
         main_corrupted_archive, removed_bits = trim_archive(archive_name, bytes_missing, copy=True,
-                                                            c_name=f'MAIN_truncated_archive', save_bits=True)
+                                                            c_name=f'MAIN_truncated_archive', save_bytes=True)
         print("Bits that were removed:", removed_bits)
         print("Generator value for the removed part:", int.from_bytes(removed_bits, byteorder='big'))
 
         producers = create_producers(numbers_of_producers,queue,lock,current_bytes_try,found)
-        consumers,pipe_list= create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method,found)
+        consumers,pipe_list= create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method, found,
+                                                        archive_open_function)
         for p in producers:
             p.start()
         for c in consumers:
@@ -126,7 +141,7 @@ if __name__ == '__main__':
                 append_bytes_to_file(main_corrupted_archive, response)
                 print("File found after adding the following bits:")
                 print(response)
-                z = zipfile.ZipFile(main_corrupted_archive)
+                z = archive_open_function(main_corrupted_archive)
                 f = z.open(file_name)
                 f.seek(0)
                 print("File content:")

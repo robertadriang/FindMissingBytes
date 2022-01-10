@@ -1,7 +1,18 @@
 import hashlib
 import shutil
 import traceback
-import zipfile
+import os
+from time import sleep
+from zipfile import BadZipFile
+from rarfile import BadRarFile
+
+def get_file_extension(file):
+    """
+    Returns the extension of a file
+    :param file: A filename
+    :return: The extension of the file
+    """
+    return os.path.splitext(file)[-1]
 
 
 def trim_file(file, removed_bytes_number, save_bytes=False):
@@ -13,42 +24,54 @@ def trim_file(file, removed_bytes_number, save_bytes=False):
     :return: The name of the file if save_bytes was set to False.
         If save_bytes is set to yes the bytes deleted will also be returned
     """
-    while True:
+    fail_counter=0
+    sleep_time=1
+    max_tries=10
+    while fail_counter<max_tries:
         try:
-            f = open(file, 'r+b')
-            f_size = f.seek(0, 2)
-            f.seek(f_size - removed_bytes_number, 0)
-            if save_bytes:
-                removed = f.read(removed_bytes_number)
+            with open(file,'r+b') as f:
+                f_size = f.seek(0, 2)
                 f.seek(f_size - removed_bytes_number, 0)
-            f.truncate()
-            f.close()
+                if save_bytes:
+                    removed = f.read(removed_bytes_number)
+                    f.seek(f_size - removed_bytes_number, 0)
+                f.truncate()
         except Exception as e:
-            print("An error occured in trim_file")
-            print(e)
+            print(f"An error occured opening {file} for trimming.")
+            if type(e) == PermissionError:
+                print(f"Please close {file} while processing. ")
+            else:
+                print(e)
+            fail_counter+=1
+            print(f"Retry {fail_counter} in {sleep_time} seconds.")
+            sleep(sleep_time)
             continue
         if save_bytes:
             return file, removed
         return file
+    print("Failed to open file. Consumer will close...")
+    exit(-1)
 
 
-def trim_archive(archive, removed_bytes_number, copy=False, c_name='truncated_archive', save_bits=False):
+def trim_archive(archive, removed_bytes_number, copy=False, c_name='truncated_archive', save_bytes=False):
     """Get the name of the trimmed archive or get a modified copy.
 
     :param archive: The name of the initial archive
     :param removed_bytes_number: The number of bytes that will be removed
     :param copy: If True function will return a copy of the archive and not modify the one sent (default False)
     :param c_name: The name of the archive copy (default truncated_archive)
-    :param save_bits: If True function will also return the bytes deleted (default False)
+    :param save_bytes: If True function will also return the bytes deleted (default False)
     :return: The name of the file if save_bytes was set to False.
         If save_bytes is set to yes the bytes deleted will also be returned
     """
     if copy:
         copy_name = f"{c_name}.{archive.split('.')[-1]}"
         shutil.copyfile(archive, copy_name)  # create a copy of the archive
-        if save_bits:
-            return trim_file(copy_name, removed_bytes_number, save_bits)
+        if save_bytes:
+            return trim_file(copy_name, removed_bytes_number, save_bytes)
         return trim_file(copy_name, removed_bytes_number)
+    if save_bytes:
+        return trim_file(archive, removed_bytes_number,save_bytes=save_bytes)
     return trim_file(archive, removed_bytes_number)
 
 
@@ -68,7 +91,7 @@ def compute_hash_opened_file(file, hash_type):
 
     :param file: A file object
     :param hash_type: The hash method (any hashlib method sent as a string e.g. 'md5')
-    :return:
+    :return: The hash of the file as a string
     """
     m = hashlib.new(hash_type)
     while chunk := file.read(1024):
@@ -83,13 +106,29 @@ def append_bytes_to_file(file, bytes_to_append):
     :param bytes_to_append: The byte string that will be added to the file
     :return: The length of the byte string appended
     """
-    f = open(file, 'ab')
-    f.write(bytes_to_append)
-    f.close()
-    return len(bytes_to_append)
+    fail_counter=0
+    sleep_time=1
+    max_tries=10
+    while fail_counter<max_tries:
+        try:
+            with open(file,'ab') as f:
+                f.write(bytes_to_append)
+            return len(bytes_to_append)
+        except Exception as e:
+            print(f"An error occured opening {file} for appending new bytes.")
+            if type(e) == PermissionError:
+                print(f"Please close {file} while processing. ")
+            else:
+                print(e)
+            fail_counter += 1
+            print(f"Retry {fail_counter} in {sleep_time} seconds.")
+            sleep(sleep_time)
+            continue
+    print("Failed to open file. Consumer will close...")
+    exit(-1)
 
 
-def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_method):
+def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_method,archive_function):
     """Verifies if adding the bytes_to_add byte string to the end of the archive returns
     a valid archive and if the file given can be extracted from the archive.
 
@@ -99,10 +138,11 @@ def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_met
     :param file_hash: The hash of the initial file
     :param hash_method: The method of generating the file_hash (any hashlib method sent as a string e.g. 'md5')
     :return: True if file_name can be extracted from the archive (THE ARCHIVE WON'T BE MODIFIED)
+    :param archive_function: A function that will be used to open the archive
     """
     added_bytes_length = append_bytes_to_file(archive, bytes_to_add)
     try:
-        z = zipfile.ZipFile(archive)
+        z = archive_function(archive)
         f = z.open(file_name)
         computed_hash = compute_hash_opened_file(f, hash_method)
         if computed_hash == file_hash:
@@ -110,12 +150,12 @@ def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_met
         return False
     except Exception as e:
         # TODO check other exception type
-        # BadZipFile when the archive is corrupted
+        # BadZipFile when a ZIP archive is corrupted
+        # BadRarFile when a RAR archive is corrupted
         # Errno 22 when the archive is valid but the file inside is corrupted
-        if type(e).__name__ == 'BadZipFile' or '[Errno 22]' in str(e):
+        if type(e) == BadZipFile or type(e) == BadRarFile or '[Errno 22]' in str(e):
             pass
         else:
-            print("@@@@ NEW ERROR FOUND @@@@")
             print(e)
             print(archive)
             traceback.print_exc()
