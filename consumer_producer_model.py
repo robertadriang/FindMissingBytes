@@ -5,7 +5,7 @@ from file_processing import check_archive_validity
 from generator import byte_generator
 
 
-def producer(queue, lock, producer_number, elements_per_producer, offset):
+def producer(queue, lock, producer_number, elements_per_producer, offset, found):
     """Inserts byte string values into a process safe queue.
     The producer won't close until all the elements in the queue are consumed
     :param queue: The queue where elements will be inserted
@@ -15,6 +15,8 @@ def producer(queue, lock, producer_number, elements_per_producer, offset):
     :param elements_per_producer: The number of elements to be inserted
     :param offset: A number used to compute the first and last element that will be inserted by
     the current producer
+    :param found: A shared variable  between consumer/producer and mainprocess
+    in order to stop the process when the solution is found
     """
     with lock:
         print(f'Starting producer with PID {os.getpid()}')
@@ -23,9 +25,14 @@ def producer(queue, lock, producer_number, elements_per_producer, offset):
     producer_generator = byte_generator(producer_start, producer_stop)
     print(f"Limits of the producer with PID {os.getpid()}:[{producer_start},{producer_stop}]")
     for i in range(elements_per_producer):
+        if found.value==1:
+            break
         queue.put(next(producer_generator))
     with lock:
-        print(f'Closing producer {os.getpid()} after all elements were added to the queue')
+        if found.value==0:
+            print(f'Closing producer {os.getpid()} after all elements were added to the queue')
+        else:
+            print(f'Closing producer {os.getpid()} because the solution was found.')
 
 
 def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, hash_method,found):
@@ -40,6 +47,8 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
     :param file_name: The name of the file to be extracted from the archive
     :param file_hash: The hash of the file to be extracted from the archive
     :param hash_method: The method of generating the file_hash (any hashlib method sent as a string e.g. 'md5')
+    :param found: A shared variable  between consumer/producer and mainprocess
+    in order to stop the process when the solution is found
     """
     with lock:
         print(f'Starting consumer with PID {os.getpid()}')
