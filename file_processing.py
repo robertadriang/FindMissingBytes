@@ -65,15 +65,20 @@ def trim_archive(archive, removed_bytes_number, copy=False, c_name='truncated_ar
     :return: The name of the file if save_bytes was set to False.
         If save_bytes is set to yes the bytes deleted will also be returned
     """
-    if copy:
-        copy_name = f"{c_name}.{archive.split('.')[-1]}"
-        shutil.copyfile(archive, copy_name)  # create a copy of the archive
+    try:
+        if copy:
+            copy_name = f"{c_name}.{archive.split('.')[-1]}"
+            shutil.copyfile(archive, copy_name)  # create a copy of the archive
+            if save_bytes:
+                return trim_file(copy_name, removed_bytes_number, save_bytes)
+            return trim_file(copy_name, removed_bytes_number)
         if save_bytes:
-            return trim_file(copy_name, removed_bytes_number, save_bytes)
-        return trim_file(copy_name, removed_bytes_number)
-    if save_bytes:
-        return trim_file(archive, removed_bytes_number, save_bytes=save_bytes)
-    return trim_file(archive, removed_bytes_number)
+            return trim_file(archive, removed_bytes_number, save_bytes=save_bytes)
+        return trim_file(archive, removed_bytes_number)
+    except Exception as e:
+        if type(e)== FileNotFoundError:
+            print(f"{archive} was not found. Please send an existing one")
+            return -1
 
 
 def compute_hash_unopened_file(file, hash_type):
@@ -90,7 +95,7 @@ def compute_hash_unopened_file(file, hash_type):
         if type(e) == FileNotFoundError:
             print(f"Can't compute hash for {file}. Please provide an existing one")
             exit()
-        print(e)
+        raise e
 
 
 def compute_hash_opened_file(file, hash_type):

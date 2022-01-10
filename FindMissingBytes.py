@@ -21,6 +21,7 @@ from rarfile import RarFile
 
 from consumer_producer_model import producer, consumer
 from file_processing import trim_archive, compute_hash_unopened_file, append_bytes_to_file, get_file_extension
+from input_parser import read_input_from_keyboard
 
 
 def create_producers(number_of_producers, queue, lock, current_bytes_try, found):
@@ -88,7 +89,14 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
 
 
 if __name__ == '__main__':
+    # UNCOMMENT THIS TO READ FROM KEYBOARD
+    archive_name,archive_open_function,file_name,needs_password,password,\
+    bytes_missing,hash_method,file_hash,numbers_of_producers,\
+    numbers_of_consumers=read_input_from_keyboard()
 
+    # print(archive_name,archive_open_function,file_name,needs_password,password,\
+    # bytes_missing,hash_method,file_hash,numbers_of_producers,\
+    # numbers_of_consumers)
     # archive_name = "./the.zip"
     # file_name = 'LoremIpsum.txt'
     # needs_password = False
@@ -104,30 +112,31 @@ if __name__ == '__main__':
     # needs_password=True
     # password='qweasdzxc1'
 
-    archive_name = "./the_pass_protected.rar"
-    file_name = 'LoremIpsum.txt'
-    needs_password = True
-    password = 'qweasdzxc1'
+    # UNCOMMENT THIS BLOCK FOR WRONG PASSWORD CASE
+    # archive_name = "./the_pass_protected.rar"
+    # file_name = 'LoremIpsum.txt'
+    # needs_password = True
+    # password = 'qweasdzxc1'
+    #
+    # bytes_missing = 2
+    # hash_method = 'md5'
+    #
+    # file_hash = compute_hash_unopened_file(file_name, hash_method)
+    # file_extension = get_file_extension(archive_name)
+    #
+    # accepted_extensions = {'.zip': zipfile.ZipFile, '.rar': RarFile}
+    # if file_extension not in accepted_extensions:
+    #     print("Please send a file with one of the following extensions:", list(accepted_extensions.keys()))
+    #     exit()
+    #
+    # archive_open_function = accepted_extensions[file_extension]
+    #
+    # numbers_of_producers = 4
+    # numbers_of_consumers = 4
 
-    bytes_missing = 2
-    hash_method = 'md5'
-
-    file_hash = compute_hash_unopened_file(file_name, hash_method)
-    file_extension = get_file_extension(archive_name)
-
-    accepted_extensions = {'.zip': zipfile.ZipFile, '.rar': RarFile}
-    if file_extension not in accepted_extensions:
-        print("Please send a file with one of the following extensions:", list(accepted_extensions.keys()))
-        exit()
-
-    archive_open_function = accepted_extensions[file_extension]
-
+    found = Value('i', 0)
     queue = Queue()
     lock = Lock()
-    numbers_of_producers = 4
-    numbers_of_consumers = 4
-    found = Value('i', 0)
-
     current_bytes_try = 1
     while True:
 
