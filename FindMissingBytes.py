@@ -15,6 +15,7 @@
 # Continutul fisierului dupa ce a fost dezarhivat cu success
 import zipfile
 from multiprocessing import Process, Queue, Lock, Pipe, Value
+from time import sleep
 
 from rarfile import RarFile
 
@@ -22,7 +23,7 @@ from consumer_producer_model import producer, consumer
 from file_processing import trim_archive, compute_hash_unopened_file, append_bytes_to_file, get_file_extension
 
 
-def create_producers(number_of_producers,queue,lock,current_bytes_try,found):
+def create_producers(number_of_producers, queue, lock, current_bytes_try, found):
     """Creates a list of producers that share a queue and a lock.
     The producers create data for the consumers in the consumer producer model
 
@@ -46,11 +47,12 @@ def create_producers(number_of_producers,queue,lock,current_bytes_try,found):
     producers = []
 
     for i in range(numbers_of_producers):
-        producers.append(Process(target=producer, args=(queue, lock, i, elements_per_producer, offset,found)))
+        producers.append(Process(target=producer, args=(queue, lock, i, elements_per_producer, offset, found)))
     return producers
 
 
-def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method,found,archive_function):
+def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name,
+                               file_hash, hash_method, found, archive_function, needs_password, password):
     """Creates a list of consumers that share a queue and a lock.
     Creates a list of pipes used for communication between consumers and main process
 
@@ -77,7 +79,8 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
         parent_conn, child_conn = Pipe()
         pipe_list.append(parent_conn)
         c = Process(target=consumer,
-                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash, hash_method,found,archive_function))
+                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash,
+                          hash_method, found, archive_function, needs_password, password))
         consumers.append(c)
     return consumers, pipe_list
 
@@ -85,19 +88,32 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
 if __name__ == '__main__':
     # archive_name = "./the.zip"
     # file_name = 'LoremIpsum.txt'
-    archive_name = "./AI_PROJECT.rar"
-    file_name = 'AI_PROJECT/news.json'
+    # archive_name = "./AI_PROJECT.rar"
+    # file_name = 'AI_PROJECT/news.json'
+    # archive_name = "./the_read_only.zip"
+    # file_name = 'LoremIpsum.txt'
+    # archive_name = "./the_pass_protected.zip"
+    # file_name = 'LoremIpsum.txt'
+    # needs_password=True
+    # password='qweasdzxc'
+    # archive_name = "./the_pass_protected.zip"
+    # file_name = 'LoremIpsum.txt'
+    # needs_password=True
+    # password='qweasdzxc1'
+    archive_name = "./the_pass_protected.rar"
+    file_name = 'LoremIpsum.txt'
+    needs_password = True
+    password = 'qweasdzxc1'
 
-    bytes_missing = 5
+    bytes_missing = 1
     hash_method = 'md5'
 
     file_hash = compute_hash_unopened_file(file_name, hash_method)
-    file_extension=get_file_extension(archive_name)
+    file_extension = get_file_extension(archive_name)
 
-
-    accepted_extensions={'.zip': zipfile.ZipFile, '.rar':RarFile}
+    accepted_extensions = {'.zip': zipfile.ZipFile, '.rar': RarFile}
     if file_extension not in accepted_extensions:
-        print("Please send a file with one of the following extensions:",list(accepted_extensions.keys()))
+        print("Please send a file with one of the following extensions:", list(accepted_extensions.keys()))
         exit()
 
     archive_open_function = accepted_extensions[file_extension]
@@ -106,7 +122,7 @@ if __name__ == '__main__':
     lock = Lock()
     numbers_of_producers = 4
     numbers_of_consumers = 4
-    found = Value('i',0)
+    found = Value('i', 0)
 
     current_bytes_try = 1
     while True:
@@ -116,11 +132,13 @@ if __name__ == '__main__':
         print("Bits that were removed:", removed_bits)
         print("Generator value for the removed part:", int.from_bytes(removed_bits, byteorder='big'))
 
-        producers = create_producers(numbers_of_producers,queue,lock,current_bytes_try,found)
-        consumers,pipe_list= create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method, found,
-                                                        archive_open_function)
+        producers = create_producers(numbers_of_producers, queue, lock, current_bytes_try, found)
+        consumers, pipe_list = create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue,
+                                                          lock, file_name, file_hash, hash_method, found,
+                                                          archive_open_function, needs_password, password)
         for p in producers:
             p.start()
+        sleep(1)
         for c in consumers:
             c.start()
         for p in producers:
@@ -136,13 +154,21 @@ if __name__ == '__main__':
             print(f"Consumer {c} finished the job")
 
         print("Results from processes:", processes_responses)
+        if 'Wrong password' in processes_responses:
+            print(f"The password provided was wrong! ")
+            password = input("Please give a new password:\n")
+            found.value = 0
+            continue
         for response in processes_responses:
             if response != 'Not found':
                 append_bytes_to_file(main_corrupted_archive, response)
                 print("File found after adding the following bits:")
                 print(response)
                 z = archive_open_function(main_corrupted_archive)
-                f = z.open(file_name)
+                if needs_password:
+                    f = z.open(file_name, pwd=bytes(password, 'utf-8'))
+                else:
+                    f = z.open(file_name)
                 f.seek(0)
                 print("File content:")
                 print(f.read())

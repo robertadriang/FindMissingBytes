@@ -25,17 +25,20 @@ def producer(queue, lock, producer_number, elements_per_producer, offset, found)
     producer_generator = byte_generator(producer_start, producer_stop)
     print(f"Limits of the producer with PID {os.getpid()}:[{producer_start},{producer_stop}]")
     for i in range(elements_per_producer):
-        if found.value==1:
+        if found.value:
             break
         queue.put(next(producer_generator))
     with lock:
-        if found.value==0:
+        if found.value == 0:
             print(f'Closing producer {os.getpid()} after all elements were added to the queue')
-        else:
+        elif found.value == 1:
             print(f'Closing producer {os.getpid()} because the solution was found.')
+        else:
+            print(f'Closing producer {os.getpid()} because the password provided was wrong.')
 
 
-def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, hash_method,found,archive_function):
+def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, hash_method, found, archive_function,
+             needs_password, password):
     """Reconstructs the corrupted archive by reading byte string elements from a process safe queue.
     If the archive can be reconstructed it sends the byte string to be used to the main process.
     If the archive can not be reconstructed it sends the Not found string.
@@ -52,30 +55,43 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
     in order to stop the process when the solution is found
     """
     with lock:
-        print(f'Starting consumer with PID {os.getpid()}')
+        print(f'Starting consumer with PID {os.getpid()} and found value {found.value}')
 
     # Checks if we found a solution on this thread
     sent_value = 0
     queue_timeout = 5
     elements_processed = 0
 
-    while not queue.empty() and found.value==0:
+    while not queue.empty() and found.value == 0:
         try:
             r_value = queue.get(timeout=queue_timeout)
+            with lock:
+                print(f"Consumer with PID {os.getpid()} will process {r_value}")
             elements_processed += 1
-            if elements_processed % 500 == 0:
+            if elements_processed % 1000 == 0:
                 with lock:
                     print(
                         f"Consumer with PID {os.getpid()} processed f{elements_processed} elements. Queue remaining "
                         f"size:{queue.qsize()}")
-            response = check_archive_validity(corrupted_archive, r_value, file_name, file_hash, hash_method,archive_function)
+            response = check_archive_validity(corrupted_archive, r_value, file_name, file_hash, hash_method,
+                                              archive_function, needs_password, password)
+            with lock:
+                print(f"Consumer with PID {os.getpid()} has processed {r_value} and received {response}")
             if response:
-                with lock:
-                    print(f"Consumer with PID {os.getpid()} found the file after adding:", r_value)
-                    print(f'{os.getpid()} tries to send correct bytes missing')
-                pipe_conn.send(r_value)
-                sent_value = 1
-                found.value=1
+                if response == 1:
+                    with lock:
+                        print(f"Consumer with PID {os.getpid()} found the file after adding:", r_value)
+                        print(f'{os.getpid()} tries to send correct bytes missing')
+                        pipe_conn.send(r_value)
+                        sent_value = 1
+                        found.value = 1
+                else:
+                    with lock:
+                        print(f"Consumer with PID {os.getpid()} found that the password provided is wrong:", r_value)
+                        print(f'{os.getpid()} tries to send Wrong password')
+                        pipe_conn.send("Wrong password")
+                        sent_value = 1
+                        found.value = -1
 
                 # We can't close the processes until all elements where consumed from the queue.
                 # Therefore we empty it after finding the correct value
@@ -92,9 +108,14 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
             else:
                 with lock:
                     print(f'Consumer with PID {os.getpid()} already sent results through pipe ')
-    if found.value==1:
-        with lock:
-            print(f'Consumer with PID {os.getpid()} was notified that the value was found. Flushing the queue... ')
+    if found.value:
+        if found.value == 1:
+            with lock:
+                print(f'Consumer with PID {os.getpid()} was notified that the value was found. Flushing the queue... ')
+        else:
+            with lock:
+                print(
+                    f'Consumer with PID {os.getpid()} was notified that the archive password was wrong. Flushing the queue... ')
         try:
             # We can't close the processes until all elements where consumed from the queue.
             # Therefore we empty it after finding the correct value

@@ -6,6 +6,7 @@ from time import sleep
 from zipfile import BadZipFile
 from rarfile import BadRarFile
 
+
 def get_file_extension(file):
     """
     Returns the extension of a file
@@ -24,12 +25,12 @@ def trim_file(file, removed_bytes_number, save_bytes=False):
     :return: The name of the file if save_bytes was set to False.
         If save_bytes is set to yes the bytes deleted will also be returned
     """
-    fail_counter=0
-    sleep_time=1
-    max_tries=10
-    while fail_counter<max_tries:
+    fail_counter = 0
+    sleep_time = 1
+    max_tries = 10
+    while fail_counter < max_tries:
         try:
-            with open(file,'r+b') as f:
+            with open(file, 'r+b') as f:
                 f_size = f.seek(0, 2)
                 f.seek(f_size - removed_bytes_number, 0)
                 if save_bytes:
@@ -42,7 +43,7 @@ def trim_file(file, removed_bytes_number, save_bytes=False):
                 print(f"Please close {file} while processing. ")
             else:
                 print(e)
-            fail_counter+=1
+            fail_counter += 1
             print(f"Retry {fail_counter} in {sleep_time} seconds.")
             sleep(sleep_time)
             continue
@@ -71,7 +72,7 @@ def trim_archive(archive, removed_bytes_number, copy=False, c_name='truncated_ar
             return trim_file(copy_name, removed_bytes_number, save_bytes)
         return trim_file(copy_name, removed_bytes_number)
     if save_bytes:
-        return trim_file(archive, removed_bytes_number,save_bytes=save_bytes)
+        return trim_file(archive, removed_bytes_number, save_bytes=save_bytes)
     return trim_file(archive, removed_bytes_number)
 
 
@@ -106,12 +107,12 @@ def append_bytes_to_file(file, bytes_to_append):
     :param bytes_to_append: The byte string that will be added to the file
     :return: The length of the byte string appended
     """
-    fail_counter=0
-    sleep_time=1
-    max_tries=10
-    while fail_counter<max_tries:
+    fail_counter = 0
+    sleep_time = 1
+    max_tries = 10
+    while fail_counter < max_tries:
         try:
-            with open(file,'ab') as f:
+            with open(file, 'ab') as f:
                 f.write(bytes_to_append)
             return len(bytes_to_append)
         except Exception as e:
@@ -119,6 +120,7 @@ def append_bytes_to_file(file, bytes_to_append):
             if type(e) == PermissionError:
                 print(f"Please close {file} while processing. ")
             else:
+                print(bytes_to_append)
                 print(e)
             fail_counter += 1
             print(f"Retry {fail_counter} in {sleep_time} seconds.")
@@ -128,7 +130,8 @@ def append_bytes_to_file(file, bytes_to_append):
     exit(-1)
 
 
-def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_method,archive_function):
+def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_method, archive_function, needs_password,
+                           password):
     """Verifies if adding the bytes_to_add byte string to the end of the archive returns
     a valid archive and if the file given can be extracted from the archive.
 
@@ -143,7 +146,10 @@ def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_met
     added_bytes_length = append_bytes_to_file(archive, bytes_to_add)
     try:
         z = archive_function(archive)
-        f = z.open(file_name)
+        if needs_password:
+            f = z.open(file_name, pwd=bytes(password, 'utf-8'))
+        else:
+            f = z.open(file_name)
         computed_hash = compute_hash_opened_file(f, hash_method)
         if computed_hash == file_hash:
             return True
@@ -154,7 +160,13 @@ def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_met
         # BadRarFile when a RAR archive is corrupted
         # Errno 22 when the archive is valid but the file inside is corrupted
         if type(e) == BadZipFile or type(e) == BadRarFile or '[Errno 22]' in str(e):
+            if type(e) == BadRarFile and 'Failed the read' in str(e):
+                print("The password provided is incorrect! Try sending a valid password")
+                return -1  ### Returns -1 when the password is wrong
             pass
+        elif 'Bad password' in str(e):
+            print("The password provided is incorrect! Try sending a valid password")
+            return -1  ### Returns -1 when the password is wrong
         else:
             print(e)
             print(archive)
