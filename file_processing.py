@@ -83,8 +83,14 @@ def compute_hash_unopened_file(file, hash_type):
     :param hash_type: The hash method (any hashlib method sent as a string e.g. 'md5')
     :return: The hash of the file as a string
     """
-    with open(file, 'rb') as f:
-        return compute_hash_opened_file(f, hash_type)
+    try:
+        with open(file, 'rb') as f:
+            return compute_hash_opened_file(f, hash_type)
+    except Exception as e:
+        if type(e) == FileNotFoundError:
+            print(f"Can't compute hash for {file}. Please provide an existing one")
+            exit()
+        print(e)
 
 
 def compute_hash_opened_file(file, hash_type):
@@ -130,8 +136,9 @@ def append_bytes_to_file(file, bytes_to_append):
     exit(-1)
 
 
-def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_method, archive_function, needs_password,
-                           password):
+def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_method, archive_function,
+                           needs_password=False,
+                           password=None):
     """Verifies if adding the bytes_to_add byte string to the end of the archive returns
     a valid archive and if the file given can be extracted from the archive.
 
@@ -142,6 +149,8 @@ def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_met
     :param hash_method: The method of generating the file_hash (any hashlib method sent as a string e.g. 'md5')
     :return: True if file_name can be extracted from the archive (THE ARCHIVE WON'T BE MODIFIED)
     :param archive_function: A function that will be used to open the archive
+    :param needs_password: A boolean value telling if a password is needed to open the archive. (default False)
+    :param password: String representation of the password (default False)
     """
     added_bytes_length = append_bytes_to_file(archive, bytes_to_add)
     try:
@@ -155,18 +164,18 @@ def check_archive_validity(archive, bytes_to_add, file_name, file_hash, hash_met
             return True
         return False
     except Exception as e:
-        # TODO check other exception type
         # BadZipFile when a ZIP archive is corrupted
-        # BadRarFile when a RAR archive is corrupted
+        # BadRarFile when a RAR archive is corrupted or the password is incorrect
         # Errno 22 when the archive is valid but the file inside is corrupted
         if type(e) == BadZipFile or type(e) == BadRarFile or '[Errno 22]' in str(e):
+            # When the password is wrong for a RAR file the returned error is failed to read instead of Bad password
             if type(e) == BadRarFile and 'Failed the read' in str(e):
                 print("The password provided is incorrect! Try sending a valid password")
-                return -1  ### Returns -1 when the password is wrong
+                return -1  # Returns -1 when the password is wrong
             pass
         elif 'Bad password' in str(e):
             print("The password provided is incorrect! Try sending a valid password")
-            return -1  ### Returns -1 when the password is wrong
+            return -1  # Returns -1 when the password is wrong
         else:
             print(e)
             print(archive)

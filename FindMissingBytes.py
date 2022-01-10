@@ -52,7 +52,7 @@ def create_producers(number_of_producers, queue, lock, current_bytes_try, found)
 
 
 def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name,
-                               file_hash, hash_method, found, archive_function, needs_password, password):
+                               file_hash, hash_method, found, archive_function, needs_password=False, password=None):
     """Creates a list of consumers that share a queue and a lock.
     Creates a list of pipes used for communication between consumers and main process
 
@@ -68,6 +68,8 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
     :param found: A shared variable  between consumer/producer and mainprocess
     in order to stop the process when the solution is found
     :param archive_function: A function that will be used to open the archive
+    :param needs_password: A boolean value telling if a password is needed to open the archive. (default False)
+    :param password: String representation of the password (default False)
     """
     # Create consumers processes
 
@@ -86,26 +88,28 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
 
 
 if __name__ == '__main__':
+
     # archive_name = "./the.zip"
     # file_name = 'LoremIpsum.txt'
+    # needs_password = False
+    # password = None
+
     # archive_name = "./AI_PROJECT.rar"
     # file_name = 'AI_PROJECT/news.json'
-    # archive_name = "./the_read_only.zip"
-    # file_name = 'LoremIpsum.txt'
-    # archive_name = "./the_pass_protected.zip"
-    # file_name = 'LoremIpsum.txt'
-    # needs_password=True
-    # password='qweasdzxc'
+    # needs_password=False
+    # password=None
+
     # archive_name = "./the_pass_protected.zip"
     # file_name = 'LoremIpsum.txt'
     # needs_password=True
     # password='qweasdzxc1'
+
     archive_name = "./the_pass_protected.rar"
     file_name = 'LoremIpsum.txt'
     needs_password = True
     password = 'qweasdzxc1'
 
-    bytes_missing = 1
+    bytes_missing = 2
     hash_method = 'md5'
 
     file_hash = compute_hash_unopened_file(file_name, hash_method)
@@ -138,7 +142,9 @@ if __name__ == '__main__':
                                                           archive_open_function, needs_password, password)
         for p in producers:
             p.start()
+
         sleep(1)
+
         for c in consumers:
             c.start()
         for p in producers:
@@ -154,11 +160,15 @@ if __name__ == '__main__':
             print(f"Consumer {c} finished the job")
 
         print("Results from processes:", processes_responses)
+
+        # Check if we received a Wrong password message and restart with a new password
         if 'Wrong password' in processes_responses:
             print(f"The password provided was wrong! ")
             password = input("Please give a new password:\n")
             found.value = 0
             continue
+
+        # Search for solution
         for response in processes_responses:
             if response != 'Not found':
                 append_bytes_to_file(main_corrupted_archive, response)

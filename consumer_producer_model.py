@@ -20,14 +20,18 @@ def producer(queue, lock, producer_number, elements_per_producer, offset, found)
     """
     with lock:
         print(f'Starting producer with PID {os.getpid()}')
+    # Get the limits of the generator
     producer_start = offset + elements_per_producer * producer_number
     producer_stop = offset + elements_per_producer * (producer_number + 1)
     producer_generator = byte_generator(producer_start, producer_stop)
     print(f"Limits of the producer with PID {os.getpid()}:[{producer_start},{producer_stop}]")
+
+    # Push elements generated to queue
     for i in range(elements_per_producer):
         if found.value:
             break
         queue.put(next(producer_generator))
+
     with lock:
         if found.value == 0:
             print(f'Closing producer {os.getpid()} after all elements were added to the queue')
@@ -38,7 +42,7 @@ def producer(queue, lock, producer_number, elements_per_producer, offset, found)
 
 
 def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, hash_method, found, archive_function,
-             needs_password, password):
+             needs_password=False, password=None):
     """Reconstructs the corrupted archive by reading byte string elements from a process safe queue.
     If the archive can be reconstructed it sends the byte string to be used to the main process.
     If the archive can not be reconstructed it sends the Not found string.
@@ -51,22 +55,24 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
     :param file_hash: The hash of the file to be extracted from the archive
     :param hash_method: The method of generating the file_hash (any hashlib method sent as a string e.g. 'md5')
     :param found: A shared variable  between consumer/producer and mainprocess
+        in order to stop the process when the solution is found or the password is wrong
     :param archive_function: A function that will be used to open the archive
-    in order to stop the process when the solution is found
+    :param needs_password: A boolean value telling if a password is needed to open the archive. (default False)
+    :param password: String representation of the password (default False)
+
     """
     with lock:
-        print(f'Starting consumer with PID {os.getpid()} and found value {found.value}')
+        print(f'Starting consumer with PID {os.getpid()}...')
 
     # Checks if we found a solution on this thread
     sent_value = 0
+    # Time waiting for an element in the queue
     queue_timeout = 5
     elements_processed = 0
 
     while not queue.empty() and found.value == 0:
         try:
             r_value = queue.get(timeout=queue_timeout)
-            with lock:
-                print(f"Consumer with PID {os.getpid()} will process {r_value}")
             elements_processed += 1
             if elements_processed % 1000 == 0:
                 with lock:
@@ -75,23 +81,21 @@ def consumer(queue, lock, pipe_conn, corrupted_archive, file_name, file_hash, ha
                         f"size:{queue.qsize()}")
             response = check_archive_validity(corrupted_archive, r_value, file_name, file_hash, hash_method,
                                               archive_function, needs_password, password)
-            with lock:
-                print(f"Consumer with PID {os.getpid()} has processed {r_value} and received {response}")
             if response:
                 if response == 1:
                     with lock:
                         print(f"Consumer with PID {os.getpid()} found the file after adding:", r_value)
                         print(f'{os.getpid()} tries to send correct bytes missing')
-                        pipe_conn.send(r_value)
-                        sent_value = 1
-                        found.value = 1
+                    pipe_conn.send(r_value)
+                    sent_value = 1
+                    found.value = 1
                 else:
                     with lock:
                         print(f"Consumer with PID {os.getpid()} found that the password provided is wrong:", r_value)
                         print(f'{os.getpid()} tries to send Wrong password')
-                        pipe_conn.send("Wrong password")
-                        sent_value = 1
-                        found.value = -1
+                    pipe_conn.send("Wrong password")
+                    sent_value = 1
+                    found.value = -1
 
                 # We can't close the processes until all elements where consumed from the queue.
                 # Therefore we empty it after finding the correct value
