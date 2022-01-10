@@ -1,4 +1,6 @@
 from rarfile import RarFile
+if -1:
+    print("Truthy")
 #
 # with RarFile('AI_PROJECT.rar') as file:
 #     file.extract(file.namelist()[0])

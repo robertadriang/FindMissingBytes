@@ -15,14 +15,16 @@
 # Continutul fisierului dupa ce a fost dezarhivat cu success
 import zipfile
 from multiprocessing import Process, Queue, Lock, Pipe, Value
+from time import sleep
 
 from rarfile import RarFile
 
 from consumer_producer_model import producer, consumer
 from file_processing import trim_archive, compute_hash_unopened_file, append_bytes_to_file, get_file_extension
+from input_parser import read_input_from_keyboard
 
 
-def create_producers(number_of_producers,queue,lock,current_bytes_try,found):
+def create_producers(number_of_producers, queue, lock, current_bytes_try, found):
     """Creates a list of producers that share a queue and a lock.
     The producers create data for the consumers in the consumer producer model
 
@@ -46,11 +48,12 @@ def create_producers(number_of_producers,queue,lock,current_bytes_try,found):
     producers = []
 
     for i in range(numbers_of_producers):
-        producers.append(Process(target=producer, args=(queue, lock, i, elements_per_producer, offset,found)))
+        producers.append(Process(target=producer, args=(queue, lock, i, elements_per_producer, offset, found)))
     return producers
 
 
-def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method,found,archive_function):
+def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing, queue, lock, file_name,
+                               file_hash, hash_method, found, archive_function, needs_password=False, password=None):
     """Creates a list of consumers that share a queue and a lock.
     Creates a list of pipes used for communication between consumers and main process
 
@@ -66,6 +69,8 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
     :param found: A shared variable  between consumer/producer and mainprocess
     in order to stop the process when the solution is found
     :param archive_function: A function that will be used to open the archive
+    :param needs_password: A boolean value telling if a password is needed to open the archive. (default False)
+    :param password: String representation of the password (default False)
     """
     # Create consumers processes
 
@@ -77,37 +82,61 @@ def create_consumers_and_pipes(number_of_consumers, archive_name, bytes_missing,
         parent_conn, child_conn = Pipe()
         pipe_list.append(parent_conn)
         c = Process(target=consumer,
-                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash, hash_method,found,archive_function))
+                    args=(queue, lock, child_conn, corrupted_archive, file_name, file_hash,
+                          hash_method, found, archive_function, needs_password, password))
         consumers.append(c)
     return consumers, pipe_list
 
 
 if __name__ == '__main__':
+    # UNCOMMENT THIS TO READ FROM KEYBOARD
+    archive_name,archive_open_function,file_name,needs_password,password,\
+    bytes_missing,hash_method,file_hash,numbers_of_producers,\
+    numbers_of_consumers=read_input_from_keyboard()
+
+    # print(archive_name,archive_open_function,file_name,needs_password,password,\
+    # bytes_missing,hash_method,file_hash,numbers_of_producers,\
+    # numbers_of_consumers)
     # archive_name = "./the.zip"
     # file_name = 'LoremIpsum.txt'
-    archive_name = "./AI_PROJECT.rar"
-    file_name = 'AI_PROJECT/news.json'
+    # needs_password = False
+    # password = None
 
-    bytes_missing = 5
-    hash_method = 'md5'
+    # archive_name = "./AI_PROJECT.rar"
+    # file_name = 'AI_PROJECT/news.json'
+    # needs_password=False
+    # password=None
 
-    file_hash = compute_hash_unopened_file(file_name, hash_method)
-    file_extension=get_file_extension(archive_name)
+    # archive_name = "./the_pass_protected.zip"
+    # file_name = 'LoremIpsum.txt'
+    # needs_password=True
+    # password='qweasdzxc1'
 
+    # UNCOMMENT THIS BLOCK FOR WRONG PASSWORD CASE
+    # archive_name = "./the_pass_protected.rar"
+    # file_name = 'LoremIpsum.txt'
+    # needs_password = True
+    # password = 'qweasdzxc1'
+    #
+    # bytes_missing = 2
+    # hash_method = 'md5'
+    #
+    # file_hash = compute_hash_unopened_file(file_name, hash_method)
+    # file_extension = get_file_extension(archive_name)
+    #
+    # accepted_extensions = {'.zip': zipfile.ZipFile, '.rar': RarFile}
+    # if file_extension not in accepted_extensions:
+    #     print("Please send a file with one of the following extensions:", list(accepted_extensions.keys()))
+    #     exit()
+    #
+    # archive_open_function = accepted_extensions[file_extension]
+    #
+    # numbers_of_producers = 4
+    # numbers_of_consumers = 4
 
-    accepted_extensions={'.zip': zipfile.ZipFile, '.rar':RarFile}
-    if file_extension not in accepted_extensions:
-        print("Please send a file with one of the following extensions:",list(accepted_extensions.keys()))
-        exit()
-
-    archive_open_function = accepted_extensions[file_extension]
-
+    found = Value('i', 0)
     queue = Queue()
     lock = Lock()
-    numbers_of_producers = 4
-    numbers_of_consumers = 4
-    found = Value('i',0)
-
     current_bytes_try = 1
     while True:
 
@@ -116,11 +145,15 @@ if __name__ == '__main__':
         print("Bits that were removed:", removed_bits)
         print("Generator value for the removed part:", int.from_bytes(removed_bits, byteorder='big'))
 
-        producers = create_producers(numbers_of_producers,queue,lock,current_bytes_try,found)
-        consumers,pipe_list= create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue, lock, file_name, file_hash, hash_method, found,
-                                                        archive_open_function)
+        producers = create_producers(numbers_of_producers, queue, lock, current_bytes_try, found)
+        consumers, pipe_list = create_consumers_and_pipes(numbers_of_consumers, archive_name, bytes_missing, queue,
+                                                          lock, file_name, file_hash, hash_method, found,
+                                                          archive_open_function, needs_password, password)
         for p in producers:
             p.start()
+
+        sleep(1)
+
         for c in consumers:
             c.start()
         for p in producers:
@@ -136,13 +169,25 @@ if __name__ == '__main__':
             print(f"Consumer {c} finished the job")
 
         print("Results from processes:", processes_responses)
+
+        # Check if we received a Wrong password message and restart with a new password
+        if 'Wrong password' in processes_responses:
+            print(f"The password provided was wrong! ")
+            password = input("Please give a new password:\n")
+            found.value = 0
+            continue
+
+        # Search for solution
         for response in processes_responses:
             if response != 'Not found':
                 append_bytes_to_file(main_corrupted_archive, response)
                 print("File found after adding the following bits:")
                 print(response)
                 z = archive_open_function(main_corrupted_archive)
-                f = z.open(file_name)
+                if needs_password:
+                    f = z.open(file_name, pwd=bytes(password, 'utf-8'))
+                else:
+                    f = z.open(file_name)
                 f.seek(0)
                 print("File content:")
                 print(f.read())
